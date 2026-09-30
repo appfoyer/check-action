@@ -20,7 +20,7 @@ It reports. It does not edit a page, publish anything, or call any server.
      check:
        runs-on: ubuntu-latest
        steps:
-         - uses: actions/checkout@v4
+         - uses: actions/checkout@v5
          - uses: appfoyer/check-action@v1
    ```
 
