@@ -1,0 +1,17 @@
+{
+  "format": "appfoyer-check/1",
+  "checkedAt": "2026-09-30",
+  "apps": [
+    {
+      "name": "Self-test (drift)",
+      "facts": [
+        "crash"
+      ],
+      "sdks": [
+        "firebase-crashlytics"
+      ],
+      "otherSdks": [],
+      "permissions": []
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "format": "appfoyer-check/1",
+  "checkedAt": "2026-09-30",
+  "apps": [
+    {
+      "name": "Self-test (clean)",
+      "facts": [
+        "crash"
+      ],
+      "sdks": [
+        "firebase-crashlytics"
+      ],
+      "otherSdks": [],
+      "permissions": [
+        "android.permission.INTERNET"
+      ]
+    }
+  ]
+}

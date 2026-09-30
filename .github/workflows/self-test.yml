@@ -1,0 +1,44 @@
+# Runs the action from this commit against the fixtures in test/. A release tag is moved only after
+# this passes on a real runner.
+name: Self-test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean build passes with fail-on-drift
+        uses: ./
+        with:
+          path: test/clean
+          fail-on-drift: "true"
+
+      - name: No baseline passes and proposes one
+        uses: ./
+        with:
+          path: test/no-baseline
+
+      - name: Drift is reported without failing by default
+        uses: ./
+        with:
+          path: test/drift
+
+      - name: Drift fails with fail-on-drift
+        id: drift
+        uses: ./
+        continue-on-error: true
+        with:
+          path: test/drift
+          fail-on-drift: "true"
+
+      - name: Expect the previous step to have failed
+        if: steps.drift.outcome != 'failure'
+        run: |
+          echo "::error::fail-on-drift did not fail the step (outcome: ${{ steps.drift.outcome }})"
+          exit 1
