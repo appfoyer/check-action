@@ -1,0 +1,18 @@
+name: AppFoyer drift check
+description: Flags pull requests that add an SDK, a permission or a kind of data your app's privacy disclosures may not cover yet.
+author: AppFoyer
+branding:
+  icon: shield
+  color: blue
+inputs:
+  path:
+    description: Folder that holds appfoyer.json, relative to the repository root.
+    required: false
+    default: "."
+  fail-on-drift:
+    description: "Fail the job when the build changed since appfoyer.json was written (default: report only)."
+    required: false
+    default: "false"
+runs:
+  using: node24
+  main: dist/index.mjs
