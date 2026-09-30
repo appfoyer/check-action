@@ -21790,6 +21790,8 @@ Usage:
   appfoyer-check init [dir]      Write appfoyer.json from the current build
       --app-id <id> --name <name> --root <path> --source-sets a,b
   appfoyer-check update [dir]    Re-read the build for every app in appfoyer.json and rewrite it
+  appfoyer-check record [dir]    Add or refresh one app's entry (matched by --app-id), creating the file
+      --app-id <id> --name <name> --root <path> --source-sets a,b
 
 Reads build files only (Gradle, manifests, Podfile, Package.swift, Xcode project, Info.plist,
 pubspec.yaml, package.json, app.json). Sends nothing anywhere. Changes no page.
@@ -21820,7 +21822,7 @@ function parseArgs(argv) {
       flags.set(k, v);
     } else throw new UsageError(`unknown option --${k}`);
   }
-  const commands = ["check", "detect", "init", "update"];
+  const commands = ["check", "detect", "init", "update", "record"];
   const command = positional[0] && commands.includes(positional[0]) ? positional.shift() : "check";
   if (positional.length > 1) throw new UsageError(`unexpected argument ${positional[1]}`);
   return { command, dir: positional[0] ?? ".", flags };
@@ -21857,6 +21859,15 @@ function proposeBaseline(base, identity, today2) {
   if (!parsed.success) throw new UsageError(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
   return parsed.data;
 }
+function refreshBaseline(base, doc, today2) {
+  return { format: DRIFT_BASELINE_FORMAT, checkedAt: today2, apps: doc.apps.map((a) => baselineEntry(detectFor(base, a), a)) };
+}
+function identityFrom(a) {
+  const root = str2(a, "root");
+  if (root !== void 0 && (isAbsolute(root) || root.split(/[\\/]/).includes(".."))) throw new UsageError("--root must be a path inside the repository");
+  const keep = { appId: str2(a, "app-id"), name: str2(a, "name"), root, sourceSets: sourceSets(a) };
+  return Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== void 0));
+}
 var write = (file2, doc) => writeFileSync(file2, JSON.stringify(doc, null, 2) + "\n");
 function run(argv, io) {
   let args;
@@ -21875,23 +21886,33 @@ function run(argv, io) {
       io.out(f2 === "json" ? JSON.stringify(d, null, 2) + "\n" : formatDetectText(d));
       return 0;
     }
+    if (args.command === "record") {
+      const identity = identityFrom(args);
+      const doc2 = existsSync(baselineFile) ? readBaseline(baselineFile) : null;
+      const apps = doc2 ? [...doc2.apps] : [];
+      const same = (a) => identity.appId !== void 0 ? a.appId === identity.appId : a.appId === void 0 && (a.root ?? ".") === (identity.root ?? ".") && (a.sourceSets ?? []).join() === (identity.sourceSets ?? []).join();
+      const at = apps.findIndex(same);
+      const entry = baselineEntry(detectFor(base, identity), { ...at >= 0 ? apps[at] : {}, ...identity });
+      if (at >= 0) apps[at] = entry;
+      else apps.push(entry);
+      const parsed = DriftBaseline.safeParse({ format: DRIFT_BASELINE_FORMAT, checkedAt: io.today(), apps });
+      if (!parsed.success) throw new UsageError(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      write(baselineFile, parsed.data);
+      io.out(`${at >= 0 ? "Updated" : "Added"} ${entry.name ?? entry.appId ?? "the app"} in ${baselineFile}. Commit it with the change that updated the pages.
+`);
+      return 0;
+    }
     if (args.command === "init") {
       if (existsSync(baselineFile)) throw new UsageError(`${baselineFile} already exists. Use \`appfoyer-check update\` to refresh it.`);
-      const root = str2(args, "root");
-      if (root !== void 0 && (isAbsolute(root) || root.split(/[\\/]/).includes(".."))) throw new UsageError("--root must be a path inside the repository");
-      const keep = { appId: str2(args, "app-id"), name: str2(args, "name"), root, sourceSets: sourceSets(args) };
-      const identity = Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== void 0));
-      write(baselineFile, proposeBaseline(base, identity, io.today()));
+      write(baselineFile, proposeBaseline(base, identityFrom(args), io.today()));
       io.out(`Wrote ${baselineFile}. Commit it: the drift check compares every later build with it.
 `);
       return 0;
     }
     const doc = readBaseline(baselineFile);
     if (args.command === "update") {
-      const detections = doc.apps.map((a) => detectFor(base, a));
-      const apps = doc.apps.map((a, i) => baselineEntry(detections[i], a));
-      const changed = doc.apps.reduce((n, a, i) => n + diffBuild(a, detections[i]).items.length, 0);
-      write(baselineFile, { format: DRIFT_BASELINE_FORMAT, checkedAt: io.today(), apps });
+      const changed = doc.apps.reduce((n, a) => n + diffBuild(a, detectFor(base, a)).items.length, 0);
+      write(baselineFile, refreshBaseline(base, doc, io.today()));
       io.out(`Updated ${baselineFile} (${changed} change${changed === 1 ? "" : "s"} recorded). Commit it once the pages match the build.
 `);
       return 0;
@@ -21968,9 +21989,26 @@ function main() {
   run(["check", path, "--format", "markdown"], io((s) => {
     md += s;
   }));
+  const drift = JSON.parse(json2).drift;
+  if (drift) {
+    const file2 = join3(dir, DRIFT_BASELINE_FILE);
+    const next = JSON.stringify(refreshBaseline(dir, readBaseline(file2), today()), null, 2);
+    md += [
+      "",
+      "<details><summary>Pages already updated? The refreshed <code>appfoyer.json</code></summary>",
+      "",
+      `Replace \`${join3(path, DRIFT_BASELINE_FILE)}\` with this once the published pages cover the changes above. Running "make this app store-ready" again writes it for you.`,
+      "",
+      "```json",
+      next,
+      "```",
+      "",
+      "</details>",
+      ""
+    ].join("\n");
+  }
   summary(md);
   console.log(md);
-  const drift = JSON.parse(json2).drift;
   if (!drift) return 0;
   console.log(`::${fail ? "error" : "warning"} title=AppFoyer drift check::${escape("The build changed since the pages were written \u2014 see the job summary.")}`);
   return fail ? 1 : 0;
